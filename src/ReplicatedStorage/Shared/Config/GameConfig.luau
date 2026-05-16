@@ -1,5 +1,5 @@
 --!strict
--- All minigame tuning lives here so balance changes never require touching logic.
+-- Game configuration constants. Shared between server and client.
 
 local GameConfig = {}
 

@@ -15,9 +15,7 @@ MonetizationConfig.Products = {
 -- Gamepasses
 MonetizationConfig.Gamepasses = {
 	X2Click = 1231166728,
-	-- TODO: the VIP gamepass id was stored as a Value object inside the old
-	-- Minutes script (data baked into the .rbxl, not readable from source).
-	-- Set it here or VIP minute-boost stays disabled.
+	-- Set the VIP gamepass ID here or VIP minute-boost stays disabled.
 	VIP = 0,
 }
 

@@ -1,7 +1,7 @@
 --!nonstrict
--- Day/night clock + day/night music (was ForestMusic.server.lua). The tree-sway
--- ServerScripts documented in docs/Map.md live on map instances and are out of
--- scope for this code rewrite.
+-- Day/night clock + day/night music (was ForestMusic.server.lua). The tree-swaying
+-- ambient sound is handled by a looping Sound in the workspace, so it benefits
+-- from Roblox's built-in 3D sound attenuation and doesn't require any scripting.
 
 local Lighting = game:GetService("Lighting")
 local SoundService = game:GetService("SoundService")

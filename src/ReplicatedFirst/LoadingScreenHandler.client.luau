@@ -1,8 +1,5 @@
 --!nonstrict
--- Modernised loading screen. The LoadingScreen ScreenGui asset still lives in
--- the published place; this looks for it under ReplicatedFirst first (the
--- recommended modular home) and falls back to a child of this script so it
--- keeps working during migration.
+-- Custom loading screen. Replaces the default Roblox one, which is very basic and doesn't help with the long load times caused by our large number of assets.
 
 local Players = game:GetService("Players")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")

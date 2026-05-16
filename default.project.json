@@ -39,10 +39,6 @@
       "StarterCharacterScripts": {
         "$className": "StarterCharacterScripts"
       }
-    },
-
-    "StarterGui": {
-      "$className": "StarterGui"
     }
   }
 }
