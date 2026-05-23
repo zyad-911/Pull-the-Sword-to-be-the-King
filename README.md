@@ -4,22 +4,22 @@ A Roblox experience where players compete to pull the legendary King's Sword fro
 
 ## Gameplay
 
-Players approach the sword embedded in the rock and initiate a pull. During the minigame, they must press reaction keys at the right time to build progress toward 100%. The first player to fill the bar becomes **King** — earning the king broadcast, a badge, and a leaderboard entry.
+Players approach the sword embedded in the rock and initiate a pull. During the minigame, they must **click (or tap) the sword as fast as they can** to drive the progress bar to 100%. Every moment, gravity drags the sword back down — pause for even a fraction of a second and it sinks faster. If it sinks all the way to 0% the pull fails. The first player to fill the bar becomes **King** — earning the king broadcast, a badge, and a leaderboard entry.
 
 ## Features
 
 - **Server-authoritative minigame** — the server validates every hit, measures pull duration, awards the badge, and broadcasts the king announcement. Clients cannot fake a win.
 - **Leaderboard** — fastest pull times are tracked via an ordered DataStore.
-- **Persistent inventory** — revives and autoclickers purchased with Robux are saved across sessions (fixed from the legacy memory-only bug).
+- **Persistent inventory** — revives and Stop-Falling charges purchased with Robux are saved across sessions (fixed from the legacy memory-only bug).
 - **Monetisation**
-  - *X2 Click* gamepass — doubles progress per hit
+  - *X2 Click* gamepass — doubles progress per click
   - *VIP* gamepass — doubles the minutes leaderstat accrual rate
-  - Autoclicker developer products (10 s / 20 s)
+  - *Stop Falling* developer products (5 s / 10 s) — freeze the sword's decay
   - Revive developer products (1× / 2× / 3×)
 - **Anti-exploit protections**
   - Proximity check before a pull session starts
-  - Hit-rate limiter (< 25 hits/sec ignored)
-  - Minimum pull duration floor (< 3 s rejected)
+  - Hit-rate limiter (~16 hits/sec ceiling)
+  - Minimum pull duration floor (< 2 s rejected)
 - **Ambiance** — dynamic music via `AmbianceService` and a custom loading screen.
 
 ## Project Structure
@@ -52,10 +52,10 @@ src/
     PullingService            # Core minigame logic (server-authoritative)
   StarterPlayer/StarterPlayerScripts/Client/
     init.client               # Client bootstrap
-    CameraController          # Camera lock/unlock for the sword sequence
+    CameraController          # Smooth follow + subtle Perlin shake during the pull
     MusicController           # Client-side music playback
     PlayerVisibilityController# Hides other players during a pull
-    PullingController         # Reaction UI and input handling
+    PullingController         # Click-spam input + sword visuals + local decay mirror
     SwordInteractionController# Sword highlight, billboard prompt, proximity check
 ```
 

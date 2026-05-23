@@ -8,6 +8,7 @@ local controllers = {
 	require(script.PlayerVisibilityController),
 	require(script.SwordInteractionController),
 	require(script.PullingController),
+	require(script.UiFxController), -- cosmetic ember VFX; safe to remove
 }
 
 for _, controller in controllers do

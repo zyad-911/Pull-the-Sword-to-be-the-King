@@ -23,12 +23,17 @@ local DataService = {}
 
 local profiles: { [Player]: any } = {}
 
+-- Current inventory schema version. v2 = Stop-Falling slots (keys 5 / 10).
+-- v1 (or a missing field) = legacy autoclicker slots (keys 10 / 20).
+local INVENTORY_VERSION = 2
+
 local function defaultProfile()
 	return {
 		minutes = 0,
 		revives = 0,
-		autoClickers = {}, -- [10] = n, [20] = n
+		autoClickers = {}, -- Stop-Falling charges: [5] = n, [10] = n
 		hasX2Click = false,
+		invVersion = INVENTORY_VERSION,
 	}
 end
 
@@ -62,13 +67,31 @@ function DataService.load(player: Player)
 	if okI and type(inv) == "table" then
 		profile.revives = tonumber(inv.revives) or 0
 		profile.hasX2Click = inv.hasX2Click == true
+		profile.invVersion = tonumber(inv.invVersion) or 1 -- absent = legacy v1
 		if type(inv.autoClickers) == "table" then
+			-- DataStores serialise numeric keys as strings; normalise back.
+			profile.autoClickers = {}
 			for k, v in inv.autoClickers do
 				local nk = tonumber(k)
 				if nk then
 					profile.autoClickers[nk] = tonumber(v) or 0
 				end
 			end
+		end
+
+		-- One-time migration: the legacy 10s/20s autoclicker products were
+		-- rebranded as 5s/10s "Stop Falling". Remap the inventory slots so an
+		-- old 10s-autoclicker charge becomes a 5s-Stop charge, and an old 20s
+		-- becomes a 10s-Stop. Built from a fresh table so there's no key
+		-- collision, and version-gated so it can't run twice.
+		if profile.invVersion < 2 then
+			local old = profile.autoClickers
+			profile.autoClickers = {
+				[5] = old[10] or 0,
+				[10] = old[20] or 0,
+			}
+			profile.invVersion = 2
+			log:info(`migrated inventory v1->v2 for {player.Name}`)
 		end
 	end
 
@@ -103,6 +126,7 @@ function DataService.save(player: Player)
 			revives = profile.revives,
 			autoClickers = profile.autoClickers,
 			hasX2Click = profile.hasX2Click,
+			invVersion = profile.invVersion,
 		}
 	end)
 end

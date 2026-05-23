@@ -12,6 +12,25 @@ local log = Log.new("Leaderboard")
 local FastestPullStore = DataStoreService:GetOrderedDataStore("FastestPullTimes")
 
 local LeaderboardService = {}
+LeaderboardService.FastestPullStore = FastestPullStore
+
+-- The OrderedDataStore stores pull times as integer milliseconds. Display
+-- scripts should call this to turn that integer into a readable string,
+-- instead of writing the raw value (which made short pulls look like five-
+-- digit seconds counts).
+function LeaderboardService.formatPullTime(ms: number): string
+	ms = tonumber(ms) or 0
+	if ms <= 0 then
+		return "--"
+	end
+	local totalSeconds = ms / 1000
+	if totalSeconds < 60 then
+		return string.format("%.2fs", totalSeconds)
+	end
+	local minutes = math.floor(totalSeconds / 60)
+	local seconds = totalSeconds - minutes * 60
+	return string.format("%dm %.2fs", minutes, seconds)
+end
 
 -- Called by PullingService with the server-measured duration (seconds).
 -- OrderedDataStore requires integers, so we store milliseconds.

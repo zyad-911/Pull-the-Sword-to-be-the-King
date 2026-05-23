@@ -102,15 +102,15 @@ local function onChat(player: Player, msg: string)
 		end
 		MonetizationService.grantRevives(target, amount)
 		NotificationService.send(player, "Success", `Gave {amount} revive(s) to {target.Name}`)
-	elseif (cmd == "/10s" or cmd == "/20s") and args[2] and args[2]:lower() == "autoclicker" then
-		local duration = tonumber(cmd:match("%d+"))
+	elseif (cmd == "/5s" or cmd == "/10s") and args[2] and args[2]:lower() == "stop" then
+		local seconds = tonumber(cmd:match("%d+"))
 		local target = resolveTarget(player, args[3])
 		if not target then
 			NotificationService.send(player, "Error", "Player not found!")
 			return
 		end
-		MonetizationService.grantAutoClicker(target, duration, 1)
-		NotificationService.send(player, "Success", `Gave a {duration}s AutoClicker to {target.Name}`)
+		MonetizationService.grantStopCharge(target, seconds, 1)
+		NotificationService.send(player, "Success", `Gave a {seconds}s Stop Falling to {target.Name}`)
 	end
 end
 

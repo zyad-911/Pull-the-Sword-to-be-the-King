@@ -1,5 +1,5 @@
 --!nonstrict
--- ProcessReceipt + gamepass checks + autoclicker/revive grants. All grants go
+-- ProcessReceipt + gamepass checks + Stop-Falling/revive grants. All grants go
 -- through DataService so Robux purchases now actually persist (the legacy code
 -- stored them in a memory table that was wiped on every rejoin).
 
@@ -18,6 +18,18 @@ local log = Log.new("Monetization")
 local MonetizationService = {}
 
 local x2Cache: { [number]: boolean } = {}
+
+-- Decay-freeze tracker. Keyed by UserId; the value is the os.clock() timestamp
+-- at which the active "Stop Falling" freeze expires. PullingService queries
+-- this every tick to decide whether to apply decay to that player's session.
+local decayFrozenUntil: { [number]: number } = {}
+
+-- Returns true if the player's sword decay is currently frozen by an active
+-- paid "Stop Falling" charge. PullingService skips its decay tick while true.
+function MonetizationService.isDecayFrozen(player: Player): boolean
+	local expiry = decayFrozenUntil[player.UserId]
+	return expiry ~= nil and os.clock() < expiry
+end
 
 function MonetizationService.ownsX2Click(player: Player): boolean
 	local profile = DataService.get(player)
@@ -45,9 +57,10 @@ local function pushInventory(player: Player)
 	end
 end
 
-function MonetizationService.grantAutoClicker(player: Player, duration: number, amount: number)
+-- Grants `amount` Stop-Falling charges of the given freeze duration (5 or 10).
+function MonetizationService.grantStopCharge(player: Player, seconds: number, amount: number)
 	DataService.update(player, function(p)
-		p.autoClickers[duration] = (p.autoClickers[duration] or 0) + amount
+		p.autoClickers[seconds] = (p.autoClickers[seconds] or 0) + amount
 	end)
 	pushInventory(player)
 end
@@ -73,10 +86,10 @@ local function onReceipt(receipt)
 
 	local id = receipt.ProductId
 	local P = Mon.Products
-	if id == P.AutoClicker10s then
-		MonetizationService.grantAutoClicker(player, 10, 1)
-	elseif id == P.AutoClicker20s then
-		MonetizationService.grantAutoClicker(player, 20, 1)
+	if id == P.StopFalling5s then
+		MonetizationService.grantStopCharge(player, 5, 1)
+	elseif id == P.StopFalling10s then
+		MonetizationService.grantStopCharge(player, 10, 1)
 	elseif id == P.Revive1x then
 		MonetizationService.grantRevives(player, 1)
 	elseif id == P.Revive2x then
@@ -97,21 +110,33 @@ function MonetizationService.start()
 
 	Net.event("RequestAutoClickers").OnServerEvent:Connect(pushInventory)
 
-	Net.event("UseAutoClicker").OnServerEvent:Connect(function(player, duration)
-		duration = tonumber(duration)
-		if not duration then
+	Net.event("UseAutoClicker").OnServerEvent:Connect(function(player, seconds)
+		seconds = tonumber(seconds)
+		if not seconds then
+			return
+		end
+		-- Can't stack a second freeze. The server processes remotes serially,
+		-- so this also makes a double-tap consume only ONE charge (the second
+		-- UseAutoClicker sees the freeze the first one just started).
+		if MonetizationService.isDecayFrozen(player) then
 			return
 		end
 		local profile = DataService.get(player)
-		if not profile or (profile.autoClickers[duration] or 0) <= 0 then
+		-- The inventory key IS the freeze duration (5 or 10). Owning a charge of
+		-- that key is the validation -- a forged `seconds` just won't be owned.
+		if not profile or (profile.autoClickers[seconds] or 0) <= 0 then
 			return
 		end
 		DataService.update(player, function(p)
-			p.autoClickers[duration] -= 1
+			p.autoClickers[seconds] -= 1
 		end)
 		pushInventory(player)
-		Net.event("AutoClickerActivated"):FireClient(player, duration)
-		log:info(`{player.Name} used a {duration}s autoclicker`)
+		-- Server-authoritative freeze window. PullingService skips its decay
+		-- tick while this is active; without it a client could claim a freeze
+		-- it never paid for.
+		decayFrozenUntil[player.UserId] = os.clock() + seconds
+		Net.event("AutoClickerActivated"):FireClient(player, seconds)
+		log:info(`{player.Name} used a {seconds}s Stop Falling`)
 	end)
 
 	Net.func("CheckX2Click").OnServerInvoke = function(player)
@@ -120,6 +145,7 @@ function MonetizationService.start()
 
 	Players.PlayerRemoving:Connect(function(player)
 		x2Cache[player.UserId] = nil
+		decayFrozenUntil[player.UserId] = nil
 	end)
 
 	log:info("started")

@@ -3,10 +3,15 @@
 
 local MonetizationConfig = {}
 
--- Developer Products
+-- Developer Products.
+-- NOTE: the two former autoclicker products were rebranded as "Stop Falling"
+-- charges. The product IDs are unchanged (so existing purchases / the live
+-- store still resolve) -- only what they grant changed:
+--   StopFalling5s  (was AutoClicker10s) -> a 5-second decay freeze
+--   StopFalling10s (was AutoClicker20s) -> a 10-second decay freeze
 MonetizationConfig.Products = {
-	AutoClicker10s = 3291348387,
-	AutoClicker20s = 3291348858,
+	StopFalling5s = 3291348387,
+	StopFalling10s = 3291348858,
 	Revive1x = 3292639633,
 	Revive2x = 3292640135,
 	Revive3x = 3292641664,
@@ -19,8 +24,8 @@ MonetizationConfig.Gamepasses = {
 	VIP = 0,
 }
 
--- Autoclicker SKUs available, in seconds.
-MonetizationConfig.AutoClickerDurations = { 10, 20 }
+-- (The Stop-Falling consumables -- durations, buttons, keybinds -- are defined
+-- in GameConfig.StopFalling.)
 
 -- Minutes leaderstat accrual.
 MonetizationConfig.MinutesPerInterval = 1
