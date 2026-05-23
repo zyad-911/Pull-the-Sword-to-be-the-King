@@ -102,7 +102,9 @@ local function onChat(player: Player, msg: string)
 		end
 		MonetizationService.grantRevives(target, amount)
 		NotificationService.send(player, "Success", `Gave {amount} revive(s) to {target.Name}`)
-	elseif (cmd == "/5s" or cmd == "/10s") and args[2] and args[2]:lower() == "stop" then
+	elseif (cmd == "/5s" or cmd == "/10s") and args[2] and args[2]:lower() == "freeze" then
+		-- /5s Freeze [PlayerName]   /10s Freeze [PlayerName]
+		-- No PlayerName -> the admin themselves; otherwise the named player.
 		local seconds = tonumber(cmd:match("%d+"))
 		local target = resolveTarget(player, args[3])
 		if not target then

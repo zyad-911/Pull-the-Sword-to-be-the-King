@@ -28,14 +28,13 @@ local GameConfig = {}
 -- DIFFICULTY -- the click-spam mechanic
 -- ============================================================================
 
--- The progress bar fills from 0 to TotalProgress. NOT hand-tuned -- it's
--- DERIVED from SwordBladeLength below so longer blades require proportionally
--- more clicks to pull out. Change SwordBladeLength to scale the whole pull;
--- tune ProgressPerStud only if you want to retune the difficulty curve itself.
--- (TotalProgress is assigned at the bottom of the file, once SwordBladeLength
--- and ProgressPerStud are defined.)
-GameConfig.ProgressPerStud = 100 / 30  -- so a 30-stud blade gives TotalProgress = 100
-                                       -- (preserves the original tuning)
+-- "Progress units" each stud of blade is worth. Multiplied by the blade's
+-- ACTUAL length (read from the mesh at runtime, see Util/BladeMetrics) to
+-- produce TotalProgress -- so resizing the blade in Studio auto-scales the
+-- whole pull, with NO config change needed. Tune ProgressPerStud to retune
+-- the per-stud difficulty curve.
+--   default: 100/30 -> a 30-stud blade gives TotalProgress = 100 (original tuning)
+GameConfig.ProgressPerStud = 100 / 30
 
 -- Percent added per accepted click.          Lower = harder, higher = easier.
 -- This is THE difficulty knob -- lower it to make the pull harder without
@@ -142,12 +141,9 @@ GameConfig.CameraFollowSmoothing = 8
 -- VISUALS -- sword motion
 -- ============================================================================
 
--- Length of the sword's blade in studs. THIS IS THE ONE KNOB for the whole
--- pull -- the camera framing, the sword's rise distance, AND the bar's full
--- value (TotalProgress) all derive from this. Set it to match the actual
--- model and the game adapts: a longer blade takes proportionally more clicks
--- to pull (because TotalProgress = SwordBladeLength * ProgressPerStud).
-GameConfig.SwordBladeLength = 30
+-- (Blade length is read from the actual Blade mesh at runtime by
+-- Shared.Util.BladeMetrics. Resize the blade in Studio and the game adapts
+-- with no config change. Tune ProgressPerStud above to scale difficulty.)
 
 -- Lateral tremble (studs) of the sword while it is idle-draining, so it
 -- visibly "struggles"/slips when the player stops clicking. 0 = no shudder.
@@ -158,6 +154,10 @@ GameConfig.SwordSlipShudderStuds = 0.25
 -- so the bar itself shows whether you're winning the tug-of-war.
 GameConfig.BarRisingColor = Color3.fromRGB(70, 220, 90)
 GameConfig.BarFallingColor = Color3.fromRGB(235, 65, 55)
+
+-- Colour the sword's Handle / Neon / Blade parts tint to during a "Stop
+-- Falling" freeze. Restored when the freeze ends.
+GameConfig.SwordFreezeColor = Color3.fromRGB(140, 215, 255)
 
 -- ============================================================================
 -- LIFECYCLE -- session timing
@@ -208,12 +208,21 @@ GameConfig.MaxApproachDistance = 25
 GameConfig.InteractionDistance = 15
 
 -- ============================================================================
--- DERIVED VALUES -- computed from the knobs above. Don't set these directly.
+-- ONBOARDING -- guide beam + welcome message for new players
 -- ============================================================================
 
--- The bar's full value, derived: a longer blade = more total progress = more
--- clicks needed = a proportionally longer pull. Resize the sword via
--- SwordBladeLength and the whole pull scales with it.
-GameConfig.TotalProgress = GameConfig.SwordBladeLength * GameConfig.ProgressPerStud
+-- One-time welcome line shown on join. Set to "" to skip. Requires a
+-- Main.Welcome.Label TextLabel in the UI; GuideController fades it in, holds
+-- it for a few seconds, then fades it out.
+GameConfig.WelcomeMessage = "Go and try to Pull the King's Sword!"
+
+-- Roblox texture asset ID for the guide-beam that points the player at the
+-- sword. Set to your image, e.g. "rbxassetid://1234567890". Empty string =
+-- plain solid-colour beam (still works fine without a texture).
+GameConfig.GuideBeamTextureId = "rbxassetid://6558648587"
+
+-- Solid colour the beam tints toward. Multiplied with the texture if you set
+-- one above; on its own it's the whole beam colour.
+GameConfig.GuideBeamColor = Color3.fromRGB(140, 220, 255)
 
 return GameConfig

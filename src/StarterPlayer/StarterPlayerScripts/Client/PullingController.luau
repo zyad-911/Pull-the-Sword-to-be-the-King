@@ -39,10 +39,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local GameConfig = require(Shared.Config.GameConfig)
+local BladeMetrics = require(Shared.Util.BladeMetrics)
 
 local CameraController = require(script.Parent.CameraController)
 
@@ -124,6 +126,31 @@ function PullingController.start()
 	local clickSFX = findDeep(swordUI, "Click")
 	local failedSFX = findDeep(swordUI, "Failed")
 	local challengeCompleteSFX = findDeep(swordUI, "ChallengeCompleteSFX")
+
+	-- Sword-freeze + warning sounds. Names are matched against several variants
+	-- so you can call them "Freeze"/"Freeze Sound" interchangeably and it works.
+	-- If a sound is missing, the playback helper silently no-ops.
+	local function findSoundByAnyName(...)
+		for _, name in {...} do
+			local s = swordUI:FindFirstChild(name, true)
+			if s and s:IsA("Sound") then return s end
+		end
+		return nil
+	end
+	local freezeSFX      = findDeep(swordUI, "Freeze")
+	local timerSFX       = findDeep(swordUI, "TimerSFX")
+	local freezeBreakSFX = findDeep(swordUI, "FreezeBreak")
+	local slipWarningSFX = findDeep(swordUI, "SlipWarning")
+	if timerSFX then
+		timerSFX.Looped = true -- defensive: ensure the tic-toc actually loops
+	end
+
+	-- ParticleEmitter templates that get cloned onto the Blade during a freeze.
+	local freezeVfxFolder = nil
+	do
+		local effects = ReplicatedStorage:FindFirstChild("Effects")
+		freezeVfxFolder = effects and effects:FindFirstChild("FreezeVFX") or nil
+	end
 
 	if mobileButtons then
 		mobileButtons.Visible = false
@@ -214,6 +241,38 @@ function PullingController.start()
 	camLock.Anchored = true
 	camLock.CanCollide = false
 
+	-- A glow Highlight that fades IN during a Stop-Falling freeze (on top of
+	-- the part-colour tint) so the sword reads as visibly enchanted/frozen.
+	-- DepthMode = Occluded so the rock properly hides the buried portion of
+	-- the sword (otherwise the highlight draws through the rock and you can
+	-- see the blade inside it). Enabled stays false when not freezing so the
+	-- highlight is truly OFF, not "transparent and still doing something".
+	local freezeHighlight = Instance.new("Highlight")
+	freezeHighlight.Name = "FreezeHighlight"
+	freezeHighlight.FillColor = Color3.fromRGB(150, 220, 255)
+	freezeHighlight.OutlineColor = Color3.fromRGB(220, 245, 255)
+	freezeHighlight.FillTransparency = 1
+	freezeHighlight.OutlineTransparency = 1
+	freezeHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	freezeHighlight.Adornee = sword
+	freezeHighlight.Enabled = false
+	freezeHighlight.Parent = sword
+
+	-- A red Highlight that pulses like a HEARTBEAT while the player is in the
+	-- "CLICK FASTER!" idle-warning band. Pairs with the SlipWarning sound so
+	-- the danger is heard AND seen. Same Occluded depth so it can't render
+	-- through the rock either.
+	local warningHighlight = Instance.new("Highlight")
+	warningHighlight.Name = "WarningHighlight"
+	warningHighlight.FillColor = Color3.fromRGB(255, 60, 60)
+	warningHighlight.OutlineColor = Color3.fromRGB(255, 130, 130)
+	warningHighlight.FillTransparency = 1
+	warningHighlight.OutlineTransparency = 1
+	warningHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	warningHighlight.Adornee = sword
+	warningHighlight.Enabled = false
+	warningHighlight.Parent = sword
+
 	local clickRayParams = RaycastParams.new()
 	clickRayParams.FilterType = Enum.RaycastFilterType.Include
 	clickRayParams.FilterDescendantsInstances = { sword }
@@ -251,8 +310,10 @@ function PullingController.start()
 		hasX2 = Net.func("CheckX2Click"):InvokeServer()
 	end)
 	local progressPerHit = hasX2 and GameConfig.ProgressPerHitX2 or GameConfig.ProgressPerHit
-	local totalProgress = GameConfig.TotalProgress
-	local maxRise = GameConfig.SwordBladeLength -- rise distance == blade length
+	-- BOTH derive from the blade's actual mesh size (Util/BladeMetrics) -- so
+	-- resizing the Blade in Studio auto-syncs the bar AND the rise distance.
+	local totalProgress = BladeMetrics.getTotalProgress()
+	local maxRise = BladeMetrics.getBladeLength()
 	local idleThreshold = GameConfig.IdleThresholdSeconds
 	local decayActive = GameConfig.DecayPerSecondActive
 	local decayIdle = GameConfig.DecayPerSecondIdle
@@ -276,6 +337,10 @@ function PullingController.start()
 	local smoothedVelocity = 0       -- EMA of progress %/s, drives the bar colour
 	local prevColorProgress = 0      -- progress last frame (for the velocity calc)
 	local barColor = GameConfig.BarFallingColor -- current (lerped) FillBar colour
+	local activeFreezeVfx = nil      -- list of cloned ParticleEmitters on the Blade
+	local originalSwordColors = {}   -- [Part] = pre-freeze Color3 to restore
+	local activeColorTweens = {}     -- [Part] = active colour Tween (for cancel)
+	local activeHighlightTween: Tween? = nil -- active Highlight transparency tween
 
 	-- Forward declarations.
 	local resetMinigame
@@ -303,9 +368,144 @@ function PullingController.start()
 		return tick() < freezeEndsAt
 	end
 
+	-- Tween helpers for the freeze look. Smooth fades feel much more like a
+	-- "magical transformation" than an instant snap.
+	local FREEZE_FADE_IN = 0.4
+	local FREEZE_FADE_OUT = 0.3
+	local FADE_IN_INFO = TweenInfo.new(FREEZE_FADE_IN, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local FADE_OUT_INFO = TweenInfo.new(FREEZE_FADE_OUT, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	local function tweenPartColor(part: BasePart, color: Color3, info: TweenInfo): Tween
+		if activeColorTweens[part] then
+			activeColorTweens[part]:Cancel()
+		end
+		local tween = TweenService:Create(part, info, { Color = color })
+		activeColorTweens[part] = tween
+		tween:Play()
+		return tween
+	end
+
+	local function tweenHighlight(fillT: number, outlineT: number, info: TweenInfo)
+		if activeHighlightTween then
+			activeHighlightTween:Cancel()
+		end
+		-- Enable to allow the fade-in. Once the fade-out completes (target both
+		-- transparencies = 1) we disable it again so it's truly off, not just
+		-- "on but invisible" -- belts and braces alongside DepthMode=Occluded.
+		freezeHighlight.Enabled = true
+		local tween = TweenService:Create(freezeHighlight, info, {
+			FillTransparency = fillT,
+			OutlineTransparency = outlineT,
+		})
+		activeHighlightTween = tween
+		tween:Play()
+		if fillT >= 1 and outlineT >= 1 then
+			local connection
+			connection = tween.Completed:Connect(function()
+				if activeHighlightTween == tween then
+					freezeHighlight.Enabled = false
+				end
+				if connection then connection:Disconnect() end
+			end)
+		end
+	end
+
+	-- Applies the full freeze look to the sword: clones every ParticleEmitter
+	-- from ReplicatedStorage.Effects.FreezeVFX onto the Blade, smoothly fades
+	-- the Handle / Neon / Blade colours toward icy blue (saving each original
+	-- so we can restore them), fades in the freeze Highlight glow, plays the
+	-- freeze stinger, and starts the looping tic-toc timer SFX. All side-
+	-- effects are LOCAL -- other players see the sword unchanged.
+	local function applyFreezeVisuals()
+		-- Clone the freeze particles onto the blade.
+		if freezeVfxFolder then
+			activeFreezeVfx = {}
+			for _, original in freezeVfxFolder:GetChildren() do
+				if original:IsA("ParticleEmitter") then
+					local clone = original:Clone()
+					clone.Enabled = true
+					clone.Parent = blade
+					activeFreezeVfx[#activeFreezeVfx + 1] = clone
+				end
+			end
+		end
+		-- Tween sword parts toward ice. Save originals (only if not already
+		-- saved -- a re-freeze during the previous fade-out keeps the TRUE
+		-- original, not the icy in-flight value).
+		local function tintPart(part: Instance)
+			if not part:IsA("BasePart") then return end
+			if originalSwordColors[part] == nil then
+				originalSwordColors[part] = part.Color
+			end
+			tweenPartColor(part, GameConfig.SwordFreezeColor, FADE_IN_INFO)
+		end
+		for _, child in handleFolder:GetChildren() do tintPart(child) end
+		for _, child in neonFolder:GetChildren() do tintPart(child) end
+		tintPart(blade)
+		-- Highlight glow on top of the colour tint.
+		tweenHighlight(0.55, 0.15, FADE_IN_INFO)
+		-- Stingers.
+		safePlay(freezeSFX)
+		if timerSFX then
+			timerSFX:Play() -- loops until clearFreezeVisuals
+		end
+	end
+
+	-- Reverses everything applyFreezeVisuals did: stops the particles emitting
+	-- (letting already-spawned ones fade out naturally), tweens every saved
+	-- colour BACK to its original, fades the Highlight out, stops the looping
+	-- tic-toc, plays the "ice cracks" stinger, and snaps a small camera kick.
+	local function clearFreezeVisuals()
+		if activeFreezeVfx then
+			local clones = activeFreezeVfx
+			activeFreezeVfx = nil
+			for _, c in clones do
+				c.Enabled = false
+			end
+			-- Destroy after the longest plausible Lifetime so particles fade
+			-- naturally instead of popping out.
+			task.delay(2, function()
+				for _, c in clones do
+					if c.Parent then
+						c:Destroy()
+					end
+				end
+			end)
+		end
+		for part, originalColor in originalSwordColors do
+			if part and part.Parent then
+				local t = tweenPartColor(part, originalColor, FADE_OUT_INFO)
+				-- Drop the saved original once the tween-back fully completes
+				-- (so a fresh freeze re-captures the current part colour).
+				local connection
+				connection = t.Completed:Connect(function()
+					if activeColorTweens[part] == t then
+						activeColorTweens[part] = nil
+						originalSwordColors[part] = nil
+					end
+					if connection then connection:Disconnect() end
+				end)
+			else
+				originalSwordColors[part] = nil
+				activeColorTweens[part] = nil
+			end
+		end
+		-- Fade the highlight back out.
+		tweenHighlight(1, 1, FADE_OUT_INFO)
+		if timerSFX then
+			timerSFX:Stop()
+		end
+		safePlay(freezeBreakSFX)
+		-- A small camera kick communicates "the ice cracks!"
+		CameraController.kickShake(0.4)
+	end
+
 	-- Ends any active decay freeze and cuts its timer SFX. Called on every
 	-- session-end path so a freeze can't bleed into the next round.
 	local function clearFreeze()
+		if wasFrozen then
+			clearFreezeVisuals() -- restore sword colours + destroy VFX + stop SFX
+		end
 		freezeEndsAt = 0
 		wasFrozen = false
 		shownFreezeSecond = nil
@@ -377,7 +577,7 @@ function PullingController.start()
 		safeVisible(keyPrompt, true)
 		safeText(keyPrompt, "CLICK!")
 		if keyPrompt then
-			keyPrompt.Position = UDim2.new(0.5, 0, 0.5, 0)
+			keyPrompt.Position = UDim2.new(0, 0, 0, 0)
 		end
 		safeVisible(startButton, false)
 		safeVisible(exitButton, false)
@@ -410,7 +610,7 @@ function PullingController.start()
 		local revivesLeft = player:FindFirstChild("RevivesLeft")
 		if revivesLeft and revivesLeft.Value > 0 and not reviveUsed then
 			awaitingReviveChoice = true
-			safeText(keyPrompt, "Revive?")
+			safeText(keyPrompt, "Press R to Revive or Press the Revive Button.")
 			safeVisible(useReviveButton, true)
 			task.delay(3, function()
 				if not awaitingReviveChoice then
@@ -465,7 +665,7 @@ function PullingController.start()
 		clearFreeze()
 		progress = totalProgress
 		setProgressBar()
-		safeText(keyPrompt, "KING!")
+		safeText(keyPrompt, "You're the NEW KING!")
 		safePlay(challengeCompleteSFX)
 		-- Big celebratory particle burst + a hold on the fully-pulled sword
 		-- (camera is at its widest here) so the win doesn't cut away instantly.
@@ -703,7 +903,7 @@ function PullingController.start()
 			hideStopButtons()
 			safeVisible(useReviveButton, false)
 			safeVisible(keyPrompt, true)
-			safeText(keyPrompt, "CLICK THE SWORD!")
+			safeText(keyPrompt, "SPAM CLICKING ON THE SWORD TO PULL IT OUT!")
 			Net.event("RequestAutoClickers"):FireServer()
 		else
 			-- UI closed for any reason -- full reset.
@@ -717,6 +917,11 @@ function PullingController.start()
 			swordClickKick = 0
 			setProgressBar()
 			camLock.CFrame = savedCamLockCFrame
+			-- Slip-warning cleanup: silence the alarm + drop the red highlight
+			-- so neither bleeds past the round.
+			showingIdleWarning = false
+			if slipWarningSFX then slipWarningSFX:Stop() end
+			warningHighlight.Enabled = false
 		end
 	end)
 
@@ -730,6 +935,15 @@ function PullingController.start()
 			return
 		end
 
+		-- Once the round is finished (win/fail), the warning band no longer
+		-- applies -- silence the alarm + drop the red pulse before the round
+		-- resets so they don't bleed into the win/fail UX.
+		if sessionFinished and showingIdleWarning then
+			showingIdleWarning = false
+			if slipWarningSFX then slipWarningSFX:Stop() end
+			warningHighlight.Enabled = false
+		end
+
 		if playing and not sessionFinished and not awaitingReviveChoice then
 			local now = os.clock()
 			local frozen = isFrozen()
@@ -737,9 +951,20 @@ function PullingController.start()
 			-- Freeze edge detection.
 			if frozen ~= wasFrozen then
 				wasFrozen = frozen
-				if not frozen then
-					-- Freeze just ended: cut its SFX, restore the prompt, and
-					-- re-show whatever stop charges the player still owns.
+				if frozen then
+					-- Freeze just started: ice the sword + play the stinger.
+					-- ALSO kill any in-flight slip warning -- the sword can't
+					-- be slipping while the decay is frozen, so leaving the
+					-- warning siren or red pulse on would be a glitch.
+					applyFreezeVisuals()
+					showingIdleWarning = false
+					if slipWarningSFX then slipWarningSFX:Stop() end
+					warningHighlight.Enabled = false
+				else
+					-- Freeze just ended: restore the sword + cut its SFX +
+					-- play the "ice cracks" sound + restore the prompt + re-show
+					-- whatever stop charges the player still owns.
+					clearFreezeVisuals()
 					shownFreezeSecond = nil
 					showingIdleWarning = false
 					stopFreezeSounds()
@@ -770,6 +995,30 @@ function PullingController.start()
 				if warnIdle ~= showingIdleWarning then
 					showingIdleWarning = warnIdle
 					safeText(keyPrompt, warnIdle and "CLICK FASTER!" or "CLICK!")
+					if warnIdle then
+						-- Sound the alarm. (If the user set it to Looped, it
+						-- keeps going for the whole warning; if not, it plays
+						-- once. Either way we stop it the moment they catch up.)
+						safePlay(slipWarningSFX)
+					else
+						-- Player caught up -- mute the warning immediately so
+						-- the alarm doesn't keep playing past the danger.
+						if slipWarningSFX then slipWarningSFX:Stop() end
+					end
+				end
+
+				-- Heartbeat-pulse red warning highlight while in the warning
+				-- band. Smoothly oscillates between dim and bright so it reads
+				-- as "danger pulse" instead of a solid red overlay.
+				if showingIdleWarning then
+					if not warningHighlight.Enabled then
+						warningHighlight.Enabled = true
+					end
+					local pulse = (math.sin(now * 8) + 1) * 0.5 -- 0..1 at ~1.27 Hz
+					warningHighlight.FillTransparency = 0.92 - pulse * 0.30 -- 0.62 .. 0.92
+					warningHighlight.OutlineTransparency = 0.65 - pulse * 0.55 -- 0.10 .. 0.65
+				elseif warningHighlight.Enabled then
+					warningHighlight.Enabled = false
 				end
 
 				if progress <= 0 and (now - sessionStartClock) >= GameConfig.FailGraceSeconds then

@@ -23,7 +23,7 @@ The 3D world. Mostly yours, plus a few **required** instances:
 
 ```
 Workspace/
-├── SwordRock (Model)                  🟩 the rock + sword (REQUIRED)
+├── SwordRock (MeshPart or Model)      🟩 the rock + sword (REQUIRED)
 │   ├── King's Sword (Model)           🟩 exact name, apostrophe + space
 │   │   ├── Handle (Folder/Model)
 │   │   │   ├── CamLock (BasePart)     🟩 camera/anchor — everything welds to this

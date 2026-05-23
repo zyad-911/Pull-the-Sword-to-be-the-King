@@ -21,7 +21,7 @@ MonetizationConfig.Products = {
 MonetizationConfig.Gamepasses = {
 	X2Click = 1231166728,
 	-- Set the VIP gamepass ID here or VIP minute-boost stays disabled.
-	VIP = 0,
+	VIP = 1232883709,
 }
 
 -- (The Stop-Falling consumables -- durations, buttons, keybinds -- are defined

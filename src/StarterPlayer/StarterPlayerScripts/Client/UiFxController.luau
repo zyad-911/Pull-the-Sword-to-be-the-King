@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
+local BladeMetrics = require(Shared.Util.BladeMetrics)
 
 local player = Players.LocalPlayer
 
@@ -150,10 +151,12 @@ function UiFxController.start()
 	end)
 
 	-- Progress drives the ember intensity (more fire as the bar fills).
+	-- Normalised against the real TotalProgress (which scales with the blade).
+	local totalProgress = math.max(BladeMetrics.getTotalProgress(), 1)
 	Net.event("ProgressSync").OnClientEvent:Connect(function(p)
 		p = tonumber(p)
 		if p then
-			progressLevel = math.clamp(p / 100, 0, 1)
+			progressLevel = math.clamp(p / totalProgress, 0, 1)
 		end
 	end)
 

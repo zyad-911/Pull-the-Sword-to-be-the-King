@@ -9,6 +9,8 @@ local controllers = {
 	require(script.SwordInteractionController),
 	require(script.PullingController),
 	require(script.UiFxController), -- cosmetic ember VFX; safe to remove
+	require(script.ShopController), -- shop panel + buy-button wiring
+	require(script.GuideController), -- onboarding beam + welcome banner
 }
 
 for _, controller in controllers do

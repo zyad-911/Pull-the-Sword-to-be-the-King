@@ -26,6 +26,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local GameConfig = require(Shared.Config.GameConfig)
 local Log = require(Shared.Util.Log)
+local BladeMetrics = require(Shared.Util.BladeMetrics)
 
 local DataService = require(script.Parent.DataService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
@@ -185,8 +186,9 @@ local function onHit(player: Player)
 	session.lastHit = now
 
 	session.progress += session.perHit
-	if session.progress >= GameConfig.TotalProgress then
-		session.progress = GameConfig.TotalProgress
+	local total = BladeMetrics.getTotalProgress()
+	if session.progress >= total then
+		session.progress = total
 		completeGame(player, session)
 	end
 end
@@ -216,7 +218,7 @@ local function onUseRevive(player: Player)
 	-- Also resurrects a session that just failed (session.finished == true and
 	-- we're inside FailedSessionGraceSeconds): the tick loop's "if finished
 	-- then continue" branch starts ticking forward again.
-	session.progress = GameConfig.TotalProgress * GameConfig.ReviveProgressFraction
+	session.progress = BladeMetrics.getTotalProgress() * GameConfig.ReviveProgressFraction
 	session.lastHit = os.clock()
 	session.lastTick = os.clock()
 	session.lastSync = 0

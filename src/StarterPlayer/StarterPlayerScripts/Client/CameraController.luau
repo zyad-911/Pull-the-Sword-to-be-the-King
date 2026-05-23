@@ -29,6 +29,7 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
 local GameConfig = require(Shared.Config.GameConfig)
+local BladeMetrics = require(Shared.Util.BladeMetrics)
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -44,16 +45,10 @@ local restY: number? = nil
 -- a smaller target on a smaller screen makes the full PC kick unfair.
 local isTouchDevice = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 
--- Pulled-camera framing, DERIVED from the blade length so resizing the sword
--- (GameConfig.SwordBladeLength) auto-adjusts the wide shot -- nothing else to
--- tune. Camera pulls back ~0.9x the blade, drops ~0.35x below the handle, and
--- looks at the blade's midpoint (half a blade-length below the handle).
-local PULLED_OFFSET = Vector3.new(
-	0,
-	-GameConfig.SwordBladeLength * GameConfig.CameraPulledDropMul,
-	GameConfig.SwordBladeLength * GameConfig.CameraPulledBackMul
-)
-local PULLED_LOOK = Vector3.new(0, -GameConfig.SwordBladeLength * 0.5, 0)
+-- Pulled-camera framing is DERIVED per-session in lock() from the live blade
+-- length (BladeMetrics) so resizing the Blade in Studio auto-adjusts the wide
+-- shot -- nothing else to tune. Camera pulls back ~0.9x the blade, drops
+-- ~0.35x below the handle, and looks at the blade's midpoint.
 
 local function getCamLock(): BasePart
 	local rock = workspace:WaitForChild("SwordRock")
@@ -108,6 +103,17 @@ local function lock()
 	end
 	locked = true
 
+	-- Per-session derivation from the live blade length. Re-reading on every
+	-- lock() means resizing the Blade between sessions just works.
+	local bladeLen = BladeMetrics.getBladeLength()
+	local PULLED_OFFSET = Vector3.new(
+		0,
+		-bladeLen * GameConfig.CameraPulledDropMul,
+		bladeLen * GameConfig.CameraPulledBackMul
+	)
+	local PULLED_LOOK = Vector3.new(0, -bladeLen * 0.5, 0)
+	local maxRise = math.max(bladeLen, 0.001)
+
 	if renderConn then
 		renderConn:Disconnect()
 	end
@@ -116,7 +122,6 @@ local function lock()
 		--    We derive it from CamLock vertical displacement so the camera
 		--    doesn't need to share state with PullingController.
 		local risen = math.max(0, camLock.Position.Y - (restY or camLock.Position.Y))
-		local maxRise = math.max(GameConfig.SwordBladeLength, 0.001) -- rise distance == blade length
 		local pulledFraction = math.clamp(risen / maxRise, 0, 1)
 
 		local cameraOffset = GameConfig.CameraRestOffset:Lerp(PULLED_OFFSET, pulledFraction)
