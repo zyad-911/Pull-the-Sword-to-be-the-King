@@ -55,6 +55,17 @@ local PullingController = {}
 
 local UI_WAIT_TIMEOUT = 2
 
+-- Platform-aware prompt text. Touch devices see "TAP!" / "TAP FASTER!" since
+-- we relaxed the input handler to accept any tap on the screen during a pull
+-- (the sword shrinks to a tiny target on phones once the camera pulls back).
+-- PC users see "CLICK!" / "CLICK FASTER!" -- a mouse cursor is precise enough
+-- to keep hitting the sword, and the input handler still requires a sword
+-- raycast there. The "not MouseEnabled" guard treats hybrid Surface-style
+-- devices (touch + mouse) as PC.
+local isTouchDevice = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+local PROMPT_CLICK = isTouchDevice and "TAP!" or "CLICK!"
+local PROMPT_FASTER = isTouchDevice and "TAP FASTER!" or "CLICK FASTER!"
+
 -- =====================================================================
 -- Small lookup helpers.
 -- =====================================================================
@@ -216,8 +227,13 @@ function PullingController.start()
 	local savedCamLockCFrame = camLock.CFrame
 	local savedCamLockPosition = camLock.Position
 
+	-- Walk the WHOLE descendant tree, not just direct children. Some gems in
+	-- the Neon folder are nested inside sub-folders / sub-Models -- if we
+	-- only welded direct children, those nested gems wouldn't be attached to
+	-- camLock, so they'd stay floating in place when the sword rose during
+	-- a pull. (Same applies to the Handle folder for symmetry / safety.)
 	local function weldParts(folder: Instance)
-		for _, part in folder:GetChildren() do
+		for _, part in folder:GetDescendants() do
 			if part:IsA("BasePart") and part ~= camLock then
 				part.CanCollide = false
 				part.Anchored = false
@@ -575,7 +591,7 @@ function PullingController.start()
 		barColor = GameConfig.BarFallingColor
 		setProgressBar()
 		safeVisible(keyPrompt, true)
-		safeText(keyPrompt, "CLICK!")
+		safeText(keyPrompt, PROMPT_CLICK)
 		if keyPrompt then
 			keyPrompt.Position = UDim2.new(0, 0, 0, 0)
 		end
@@ -696,13 +712,27 @@ function PullingController.start()
 		if not swordUI.Enabled or sessionFinished or awaitingReviveChoice then
 			return
 		end
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1
-			and input.UserInputType ~= Enum.UserInputType.Touch then
+		local isTouch = input.UserInputType == Enum.UserInputType.Touch
+		local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
+		if not isTouch and not isMouse then
 			return
 		end
-		local pos = input.Position
-		if not rayHitsSword(pos.X, pos.Y) then
-			return
+		-- MOBILE: skip the precise sword-raycast. The camera pulls back as
+		-- progress climbs (and on tall blades that's a LOT of distance), so
+		-- on a phone screen the sword shrinks to a tiny target that's
+		-- basically impossible to spam-tap. The player is already in pulling
+		-- mode (they tapped the sword once intentionally to enter), so any
+		-- subsequent tap anywhere on screen clearly means "I'm pulling" --
+		-- there's nothing else they could be trying to do, and any UI button
+		-- taps are caught by the gameProcessed guard above. Mouse users on
+		-- PC keep the pixel-perfect aim requirement (single-pixel cursor
+		-- makes the small sword still hittable, and it preserves the "skill"
+		-- feel for the desktop crowd).
+		if not isTouch then
+			local pos = input.Position
+			if not rayHitsSword(pos.X, pos.Y) then
+				return
+			end
 		end
 		if playing then
 			registerClick()
@@ -781,7 +811,7 @@ function PullingController.start()
 		wasFrozen = false
 		shownFreezeSecond = nil
 		setProgressBar()
-		safeText(keyPrompt, "CLICK!")
+		safeText(keyPrompt, PROMPT_CLICK)
 		safeVisible(useReviveButton, false)
 		sessionFinished = false
 		playing = true
@@ -968,7 +998,7 @@ function PullingController.start()
 					shownFreezeSecond = nil
 					showingIdleWarning = false
 					stopFreezeSounds()
-					safeText(keyPrompt, "CLICK!")
+					safeText(keyPrompt, PROMPT_CLICK)
 					showOwnedStopButtons()
 				end
 			end
@@ -994,7 +1024,7 @@ function PullingController.start()
 				local warnIdle = hasClicked and (now - lastHitClock) > GameConfig.IdleWarningSeconds
 				if warnIdle ~= showingIdleWarning then
 					showingIdleWarning = warnIdle
-					safeText(keyPrompt, warnIdle and "CLICK FASTER!" or "CLICK!")
+					safeText(keyPrompt, warnIdle and PROMPT_FASTER or PROMPT_CLICK)
 					if warnIdle then
 						-- Sound the alarm. (If the user set it to Looped, it
 						-- keeps going for the whole warning; if not, it plays

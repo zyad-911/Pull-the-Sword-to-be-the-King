@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared.Net)
@@ -13,6 +14,13 @@ local GameConfig = require(Shared.Config.GameConfig)
 local MusicController = require(script.Parent.MusicController)
 
 local player = Players.LocalPlayer
+
+-- Platform-aware billboard prompt. Touch devices see "Tap to Start" instead
+-- of "Click to Start" -- entering still requires hitting the sword's
+-- ClickDetector, but mobile players speak "tap", not "click". The "not
+-- MouseEnabled" guard treats hybrid Surface-style devices as PC.
+local isTouchDevice = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+local START_PROMPT = isTouchDevice and "Tap to Start" or "Click to Start"
 
 local SwordInteractionController = {}
 local inPullingMode = false
@@ -34,38 +42,49 @@ function SwordInteractionController.start()
 	local billboard = rock:WaitForChild("BillboardGui")
 	local textLabel = billboard:WaitForChild("TextLabel")
 
-	textLabel.Text = "Click to Start"
+	textLabel.Text = START_PROMPT
 
-	-- DESTROY the workspace Highlight and rebuild from scratch. The previous
-	-- approach (find + override properties) wasn't enough -- something about
-	-- the Studio-saved instance was poisoning it (probably an unset Adornee,
-	-- FillTransparency = 1, or a leftover property the override missed).
-	-- Recreating it in code means EVERY property is known-good, and we
-	-- avoid the silent-failure trap that Highlights are prone to. The
-	-- BillboardGui has no such pitfall because it just draws its children
-	-- regardless -- which is why the billboard "works" and the highlight
-	-- didn't.
+	-- ====================================================================
+	-- Proximity Highlight setup.
+	-- ====================================================================
+	-- Roblox has a SILENT-FAILURE quirk: when multiple Highlights share the
+	-- same Adornee, only the FIRST is visible (others are silently dropped).
+	-- PullingController also creates FreezeHighlight + WarningHighlight on
+	-- the sword Model, so just trusting the workspace-template Highlight
+	-- isn't enough -- either a stale leftover or one of the freeze siblings
+	-- could be claiming the render slot.
 	--
-	-- Adornee = handle (a BasePart), NOT sword (the Model). Adorning to a
-	-- specific BasePart is the most reliable form in Roblox and dodges any
-	-- subtle Model-level rendering quirks. Visually it still glows over the
-	-- whole handle, which is what the player actually sees sticking out of
-	-- the rock.
-	local oldHighlight = sword:FindFirstChild("Highlight")
-	if oldHighlight then
-		oldHighlight:Destroy()
+	-- Belt-and-braces fix:
+	--   1) Destroy ALL Highlight instances under the sword (handles
+	--      duplicates / renamed leftovers, not just the "Highlight" name).
+	--   2) Recreate from Instance.new so every property is known-good.
+	--   3) Adornee = sword (Model) so the WHOLE sword glows, not just one
+	--      part -- matches what players expect when approaching.
+	--   4) Re-force the critical properties every RenderStepped frame as a
+	--      safety net in case anything ever clobbers them.
+	for _, child in sword:GetChildren() do
+		if child:IsA("Highlight") then
+			child:Destroy()
+		end
 	end
 
 	local highlight = Instance.new("Highlight")
 	highlight.Name = "Highlight"
-	highlight.Adornee = handle
+	highlight.Adornee = sword
 	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 	highlight.FillColor = Color3.fromRGB(255, 255, 255)
 	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-	highlight.FillTransparency = 0.5
+	highlight.FillTransparency = 0.35 -- more opaque than before so the glow really pops
 	highlight.OutlineTransparency = 0
 	highlight.Enabled = false -- the RenderStepped loop turns it on near the sword
 	highlight.Parent = sword
+
+	-- Cache the visible-state target colors so the per-frame safety net
+	-- doesn't allocate Color3 / number objects on every tick.
+	local HIGHLIGHT_FILL = Color3.fromRGB(255, 255, 255)
+	local HIGHLIGHT_OUTLINE = Color3.fromRGB(255, 255, 255)
+	local HIGHLIGHT_FILL_T = 0.35
+	local HIGHLIGHT_OUTLINE_T = 0
 
 	RunService.RenderStepped:Connect(function()
 		if inPullingMode then
@@ -81,6 +100,20 @@ function SwordInteractionController.start()
 		local near = (root.Position - camLock.Position).Magnitude <= GameConfig.InteractionDistance
 		highlight.Enabled = near
 		billboard.Enabled = near
+		-- Safety net: re-force the visible properties every frame. If
+		-- ANYTHING (a stray script, a Roblox quirk, a saved-template
+		-- value bleeding in) ever overrides them, this puts them back
+		-- before the next render. The cost is two scalar writes + two
+		-- Color3 assignments per frame -- microscopic next to the
+		-- RenderStepped loop itself.
+		if near then
+			highlight.Adornee = sword
+			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+			highlight.FillColor = HIGHLIGHT_FILL
+			highlight.OutlineColor = HIGHLIGHT_OUTLINE
+			highlight.FillTransparency = HIGHLIGHT_FILL_T
+			highlight.OutlineTransparency = HIGHLIGHT_OUTLINE_T
+		end
 	end)
 
 	local function enter()
