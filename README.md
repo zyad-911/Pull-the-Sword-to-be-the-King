@@ -6,6 +6,18 @@ A Roblox experience where players compete to pull the legendary King's Sword fro
 
 Players approach the sword embedded in the rock and initiate a pull. During the minigame, they must **click (or tap) the sword as fast as they can** to drive the progress bar to 100%. Every moment, gravity drags the sword back down — pause for even a fraction of a second and it sinks faster. If it sinks all the way to 0% the pull fails. The first player to fill the bar becomes **King** — earning the king broadcast, a badge, and a leaderboard entry.
 
+## Game Link
+
+https://www.roblox.com/games/76195731114162/Pull-the-Sword-to-be-the-King
+
+## Discord Server
+
+https://discord.gg/SERg8zXDP
+
+## Linkedin Profile
+
+https://www.linkedin.com/in/zyad-kamal-7690193a3?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app
+
 ## Features
 
 - **Server-authoritative minigame** — the server validates every hit, measures pull duration, awards the badge, and broadcasts the king announcement. Clients cannot fake a win.
@@ -79,3 +91,5 @@ src/
 ## Networking
 
 See [`docs/Networking.md`](docs/Networking.md) for the full remote event contract and security model.
+
+
